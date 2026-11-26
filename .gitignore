@@ -1,0 +1,31 @@
+.DS_Store
+__pycache__/
+*.py[cod]
+.pytest_cache/
+node_modules/
+dist/
+.runtime/
+outputs/
+DerivedData/
+WebDriverAgent/
+*.xcresult
+*.mobileprovision
+*.p12
+*.pem
+.env
+.env.*
+config.local.json
+posthog.local.json
+ga4.local.json
+*.jsonl
+
+# Local experiments are excluded from Git and release packages.
+/plugins/
+
+# Development notes and evaluation cases are maintained locally only.
+/evals/
+
+/promo/
+
+# phone screenshots saved by agents
+pua-shots/

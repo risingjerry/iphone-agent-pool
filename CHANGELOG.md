@@ -1,0 +1,341 @@
+# 更新记录
+
+## Unreleased — 2026-11-26
+
+- Watchdog circuit breaker: after 5 starts in a row that never got WDA ready, restarts of that phone pause for 30 min, doubling per further failed retry up to 6 h; one log line and one owner notification per trip. A ready WDA, a manual `start NAME` or a connection change (e.g. USB plugged in) closes it. `status` reports `restart_failures` / `restarts_paused_until`. One Wi-Fi-only iPhone had been restarted ~12 times an hour all day.
+- Runner launches pass `-collect-test-diagnostics never`: every failed launch used to run `devicectl diagnose`, leaving 200–800 MB in `$TMPDIR/TemporaryItems/NSIRD_devicectl_*` and the `.xcresult`.
+- `hold NAME --minutes N` keeps the idle auto-lock off during long flows.
+
+## iphone-agent-pool 0.1.0 — 2026-10-25
+
+- Wireless transport: `device_host: "tunnel"` reaches WebDriverAgent through the CoreDevice tunnel (USB or Wi-Fi), unaffected by a VPN on the phone.
+- Auto-unlock for passcode-less phones (`IPHONE_USE_AUTO_UNLOCK=1`): Home + swipe up, since `/wda/unlock` times out on iOS 26.
+- `pool/iphone_pool.py`: multi-phone pool with JSON CLI, launchd watchdog, automatic re-signing before free-profile expiry, per-phone Streamable HTTP MCP via supergateway, Tailscale `--expose`.
+- Removed bundled upstream telemetry tokens; no usage data is sent.
+- Forked from iPhone Use 0.3.16 (MIT, ZHONG XIN).
+
+## iphone-agent-pool 0.6.1 — 2026-10-25
+
+- Never launch the WDA runner on a locked passcode phone: `start`/`recover` check `devicectl` lock state and wait (up to 10 min) for the owner to unlock. Launching while locked wedged iOS automation mode, so every later start failed with code 74 ("Exiting due to IDE disconnection") until the phone rebooted.
+- Code-74 start failures now come with a concrete next step: after an iPhone reboot the first start must be over USB; otherwise restart the phone.
+- On-demand phones: leave the runner running after a task (it survives lock/unlock) instead of stopping it each time.
+
+## iphone-agent-pool 0.6.0 — 2026-10-25
+
+- `pool/phone_operator.md`: a brief for a fast local model (e.g. DeepSeek V4.1 Flash via DeepSeek Harness) to do a whole phone task next to the phone and report once — ~2–3× faster than a remote agent tapping step by step.
+
+## iphone-agent-pool 0.5.0 — 2026-10-25
+
+- Idle lock: the watchdog locks a pool phone after 3 idle minutes (`IPHONE_POOL_IDLE_LOCK`), so agents no longer lock after every task and back-to-back tasks skip the unlock.
+- Watchdog runs every 30 s instead of 2 min: a dropped WDA comes back sooner.
+- Every auto-unlock is logged (`unlock.log`: result, gesture attempt, seconds).
+- Docs: Reduce Motion for pool phones.
+
+## iphone-agent-pool 0.4.3 — 2026-10-25
+
+- Lock detection for pool phones no longer trusts only `/wda/locked`, which reports "unlocked" for a sleeping lock screen on iOS 26: it also looks for the lock screen's flashlight/camera buttons (`flashlight-orb-button`, `camera-orb-button`; not localized), skipped within 20 s of the last proof the phone was awake.
+- Unlock flicks from the very bottom edge (120 ms, then 200 ms) before the slow drag fallback: 10/10 unlocks at 3.4–4.5 s, no 13 s outliers. Locking an already locked phone returns at once.
+
+## iphone-agent-pool 0.4.2 — 2026-10-25
+
+- `phone_client.py` also reuses the MCP session through a cached id when its helper cannot survive (agent sandboxes that kill background processes after each command): ~0.33 s instead of ~1.3 s per call.
+- Pool gateways send smaller screenshots (`IPHONE_USE_IMAGE_SHORT_SIDE=512`, `IPHONE_USE_IMAGE_QUALITY=65`): ~70 KB instead of ~220 KB through rate-limited relays.
+- `--out` is accepted after `call` as well.
+
+## iphone-agent-pool 0.4.1 — 2026-10-25
+
+- `IPHONE_USE_FAST_TAP=1` (set by `pool/serve.sh`): coordinate taps use a W3C touch (~0.65 s) instead of `/wda/tap` (~1.07 s). Off by default, so the upstream contract is unchanged. Calculator benchmark over the tailnet: 9.2 s → 6.8 s.
+
+## iphone-agent-pool 0.4.0 — 2026-10-25
+
+- `pua_press_button {"name": "lock"}` locks the phone through a Shortcuts shortcut named `Lock Screen` (WDA's `/wda/lock` does nothing on iOS 26), verified in ~1 s; already-locked phones return at once.
+- Auto-unlock: W3C-actions flick (~0.9 s instead of 2.5–4 s for the drag endpoint) with a drag fallback, window size cached; 12/12 unlocks in testing.
+- `phone_client.py` keeps a per-URL helper with a kept-alive HTTP connection and MCP session: a button press costs ~0.15 s plus one network round trip.
+- The WDA forwarder caches the CoreDevice tunnel address: a new connection costs ~0.04 s instead of ~0.45 s.
+- "Make it fast" guide for agents; lock-screen setup in Quick start.
+
+## iphone-agent-pool 0.3.0 — 2026-10-25
+
+- `pool/phone_client.py`: standard-library MCP client so shell-only agents (e.g. Grok Bot's cloud computer on your tailnet) can drive a pool phone; never uses system proxies.
+- Fix: the first `pua_ready` after a WDA restart failed with `invalid session id`; READY now replaces a stale persisted session once (actions still never retry).
+
+## iphone-agent-pool 0.2.1 — 2026-10-25
+
+- Watchdog notifies the owner when a phone needs a person (untrusted developer certificate, UI Automation not enabled): macOS notification plus optional `IPHONE_POOL_NOTIFY` command, throttled to once per 6 h.
+- Fix: `install --expose` crashed (`'list' object is not callable`) since `expose` was added.
+- Troubleshooting section in both READMEs.
+
+## iphone-agent-pool 0.2.0 — 2026-10-25
+
+- `expose NAME on|off` publishes or withdraws a single phone on the tailnet; the choice is kept across `install`.
+- `add --on-demand` for a personal phone that keeps its passcode: never auto-started, auto-unlocked or exposed on the tailnet; `start` re-signs first when the profile is about to expire.
+- Fix: every pool call now passes the phone's own WDA port, so a second phone can be added.
+- Fix: `install` retries `launchctl bootstrap` while a previous `bootout` finishes.
+- Claude Code no longer warns about `${PLUGIN_ROOT}`: the Codex-only MCP file is now `codex.mcp.json`.
+
+## 0.3.16 — 2026-10-22
+
+- 增加显式 App 启动埋点，同步发送到 PostHog 和 GA4，记录校验后的 bundle ID、公开目录名称、单次 / batch 来源和前台核验状态；batch 仅统计已成功返回的启动子步骤。
+- 增加 App 启动次数、匿名安装数、占比和每日趋势报表；继续支持统一关闭统计，更新采集说明。
+
+## 0.3.15 — 2026-10-16
+
+- 新增无参数 `pua_screenshot` 工具，通过 WDA HID 事件触发 iOS 系统截屏，截图直接存入 iPhone 相册；复用操作锁、锁屏检查和不确定动作不重放规则。
+- skill 简洁补充：需要在手机里发送、上传或使用截图时，调用截图工具后到 iPhone「照片」App 或目标 App 相册选择器中找到并使用，避免转到 Mac 截图或网页传图。
+
+## 0.3.14 — 2026-10-16
+
+- 新增独立 GA4 Measurement Protocol 直连上报，与 PostHog 复用相同匿名事件和隐私字段白名单；按项目维护者要求内置专用上报配置。
+- 两个服务独立队列发送；GA4 不重试不确定请求，避免重复计数，保留初始化、预览轮询和 viewport 自动恢复不埋点的规则。统一关闭开关同时控制两者，也支持单独关闭与本地覆盖。
+- 在独立 iPhone Use GA4 属性发布使用概览、稳定性与接入两份看板，共 16 张图；注册工具、结果、错误、READY/setup 状态、版本等维度及耗时指标，正式看板排除测试数据。
+
+## 0.3.13 — 2026-10-15
+
+- 修复匿名埋点量放大：MCP initialize / ping / 工具与资源发现不再上报启动，仅首次实际工具调用结束时记录使用启动。
+- READY、setup 和预览结果字段合并到单条工具事件，停止发送重复的专用结果事件；新增 analytics_schema_version=2，仪表盘兼容新旧客户端且不重复计数。
+- 排除 viewport 自动恢复查询及其失败埋点，保留用户预览点击、拖动与工具栏操作；实际使用进程图按工具事件中的 session_id 去重，历史空启动不再计入该图。
+
+## 0.3.12 — 2026-10-13
+
+- 合并 PR #10（@xiangyingchang）：将间接依赖 shell-quote 固定到 1.11.0，修复 GHSA-pqg4-j6r4-53mv；保持 appium-ios-device 3.1.24。
+- 合并 PR #11（@sunjinshuai）：统一已安装 App 清单的响应校验与解析，支持 apps / installedApps 的列表或字典形式；异常响应正常返回不可用提示与目录回退，不错误记录安装证明或缓存。
+- 合并 PR #20（@cubxxw）：长文本续传绑定原 App、WDA 会话与输入框；焦点或上下文变化、读取失败时停止续传，保留已输入内容，不向新输入框补写；batch 同步停止后续动作。
+
+## 0.3.11 — 2026-10-13
+
+- 合并 PR #16：支持在手机实时预览中点击、鼠标拖动和触控板双指滚动，复用共享操作锁并保持预览独立刷新；保留暂停、锁屏、过期帧、旋转和并发输入保护。
+- 手机预览按最终要求使用默认箭头光标（cursor: default）；保留 0.3.10 的连接 loading、认证暂停及减少动态效果设置。
+- 保留普通观察默认 200 节点和完整原生快照；新增慢列表场景指引，按需使用显式快照限制及截图回退。
+- 区分请求超时、连接失败与其他传输异常。超时提示有界等待后重新观察或重验 READY，连接失败引导 setup 检查；保留动作不确定性并禁止盲目重放，允许会话设置传输失败在后续调用中恢复。
+- 动作后观察改用最多 0.5 秒的宿主等待，不临时开启原生 animation cool-off，避免大列表读取进入长时间 idle 等待及失败后同步清理。
+- 独立观察新增显式原生快照深度 / 子节点限制，快照创建前生效并标记不完整；这些限制不是可见区域裁剪，可能遗漏屏幕上的行。成功后恢复设置，失败或进程退出通过共享会话日志在后续查询前恢复，不改变普通动作与采集的默认完整快照。
+
+## 0.3.10 — 2026-10-10
+
+- 首次打开手机侧边栏、等待预览第一帧及初始化重试时显示旋转 loading 图标，不再将尚未收到画面误报为手机未连接。
+- 明确刷新连接失败仍显示未连接；保留等待解锁、认证暂停状态及已显示画面的断线提示。
+- 更新 widget 资源 URI 与插件安装版本，确保升级后加载新版界面。
+
+## 0.3.9 — 2026-10-10
+
+- 普通观察及点击、滑动后的观察默认输出上限从 100 提高到 200 个过滤后节点，减少当前页面文字和导航控件被截断。
+- 同步工具参数默认值与使用指引；保留显式 `max_nodes` 设置、500 节点最大值、视口过滤和原生读树行为，不改变超时设置。
+
+## 0.3.8 — 2026-10-09
+
+- 新增简短 AirDrop 文件传回 Mac 指引：手机共享到当前 Mac，再到下载目录找到文件直接使用。
+
+- 首次使用先 setup 检查服务，再 READY；同步技能、插件描述与 MCP 引导。start 默认最多等待 20 秒，status 可按同一 job 有界等待，减少启动查询回合。
+
+## 0.3.7 — 2026-10-09
+
+- 整页 XML 读取排除未使用的 `accessible` 属性，减少逐节点原生无障碍查询；保留节点结构、文字、值、坐标、可见性选项和点击前的 hittable 检查。
+- 真机对照：微信、淘宝和相册页面的新旧 UI 节点内容一致，原始 XML 缩小约 7%–8%；读取耗时因页面与缓存而异，仍可能出现完整快照超时。
+
+- 参考 Cowart 接入独立的 iPhone-use PostHog organization / project，统计匿名启动、工具使用、READY 结果、setup 操作和预览控制。
+- 后台发送限定字段，排除画面、文本、设备标识与高频帧轮询；支持关闭开关，有限队列和保留事件 UUID 的网络重试不会影响手机操作。
+- 新增 8 个使用与稳定性分析图表，区分正式和验证数据；补充埋点文档、回归测试和发布包配置。
+
+## 0.3.6 — 2026-10-08
+
+- 屏幕渐变的顶部 / 底部中央保留微弱光带，随既有颜色和波点动画逐渐连接，再柔和收回。三种静态遮罩随布局生成，继续复用透明度交叉渐变。
+
+- 工具名统一由 `wda_*` 改为 `pua_*`，PUA 代表 Phone Use Agent；包含 17 个模型工具与 2 个 widget 专用工具。
+- 同步工具描述、服务提示、恢复 / 下一步调用指引、两项 skill 及 references、中英文 README、widget 与命令行入口，通道错误码统一为 `pua_*`。
+- 保留底层 WebDriverAgent 依赖、内部模块、协议路径和兼容环境变量，沿用已有设备、签名、构建与运行数据。
+
+- 滚动查找每次最多执行一次手势；目标被遮挡或存在歧义时立即停止，滚动后仍未找到可点击目标时附截图，让模型先看画面再判断是否继续。
+- 显式滚动验证首次无进展即返回截图，取消自动备用手势；兼容旧次数参数，但不继续盲滑。
+- 截图兜底覆盖区域遮挡、滚动上下文变化、输入回读不符和预期页面未出现；列表采集遇重复页也附截图。复用已有观察和图片，保留原错误与已执行动作，不重放业务操作。
+
+## 0.3.4 — 2026-10-08
+
+- `docs/` 与 `evals/` 改为本地维护，移出 Git 与发布包；必要屏幕操作说明移入技能 references。
+- 区分源码包与安装包，安装排除根 Python 测试、CI 和开发基准 / 冒烟脚本；完整保留 widget 源码、构建配置、依赖锁文件、测试和已构建页面。
+- 中英文 README 明确手机端 WDA 前置安装要求，补充签名 / 安装 / 启动步骤、官方指引及 Appium / WebDriverAgent 致谢。
+- widget 背景增加很浅的静态灰色点阵，以单个 CSS 径向渐变按 20px 间距平铺；不增加 DOM 节点、动画或 JavaScript 绘制循环。
+
+## 0.3.3 — 2026-10-08
+
+- 插件简介改为英文「Let Codex control your iPhone」，表达让 Codex 操作用户自己的 iPhone。
+
+## 0.3.2 — 2026-10-08
+
+- 黑色占位屏幕按连接中、未连接、锁屏、认证、暂停和画面不可用显示对应的灰白线条图标。
+- 屏幕内只显示居中的状态图标，文字提示仅保留给辅助阅读。
+- 插件图标改为白色圆角底板，叠加绿色与蓝色玻璃屏幕，加入半透明高光和柔和阴影。
+- 刷新时显示连接中图标，失败则恢复原提示；认证暂停期间继续禁用手机操作按钮。
+
+## 0.3.0 — 2026-10-07
+
+- 项目、插件、技能、MCP 注册、屏幕资源和源码入口统一为 iPhone Use。
+- 中文 README 重写安装、依赖、一段提示词安装、功能与技术实现；新增英文文档跳转。
+- 新安装使用通用运行目录，升级继续复用原有设备配置和构建，并兼容原环境变量。
+- 安装成功后停用旧插件注册，只清理确认属于旧安装的 MCP 入口，保留后台工作所需的缓存。
+
+## 0.2.7 — 2026-10-07
+
+- 界面定位或输入焦点失败后先查看截图，处理遮挡并按像素换算点击；补充图片块转发方式，避免把截图输出成 base64 文本。
+- 遮挡错误不再建议直接点击后台控件坐标；焦点失败提示重新选点，避免盲目重复与提前交还用户。
+- 区分锁屏与 App 认证暂停：确认解锁后 READY / 用户刷新恢复对应锁屏暂停，显式认证和旧版未知暂停仍需完成通知后 resume。
+- 刷新按钮重新连接并检查解锁，用户主动刷新可恢复点击时的预览暂停；并发中的新暂停不会被旧检查清除。
+- 没有任何画面时保留 iPhone 外壳，用黑色关闭屏幕质感和小字「未连接」占位；暂停显示对应原因，READY 返回暂停状态。
+
+## 0.2.6 — 2026-10-07
+
+- 插件图标参考圆角底板与叠层手机造型，改用深灰底、灰色后层与半透明白色前层，保留轻微立体阴影和高光。
+- logo 与 composerIcon 共用自包含 SVG；保持矢量清晰度，随版本刷新本地安装缓存。
+
+## 0.2.5 — 2026-10-07
+
+- READY 与手机屏幕工具返回稳定的 widget 会话标识，让 Codex 在本聊天中复用已打开的屏幕标签。
+- 重复 setup / 连接恢复、预览 open / pause / resume 沿用同一面板；MCP 重连后会话标识不变。
+- 更新 setup 与使用说明，已有面板时直接继续，仅在需要重开已关闭面板时调用屏幕工具。
+- widget 顶部留白从 14px 增至 28px，浅色背景改为很浅的灰色 `#f8f8f8`。
+- 顶部状态栏与底部工具栏采用白色底、0.5px 极浅灰描边与轻微弥散阴影。
+- 波点与渐变拆成独立动画层：波点大小起伏为 4 秒一轮，渐变交替与呼吸保持 8 秒一轮。
+
+## 0.2.4 — 2026-10-07
+
+- 波浪点阵的交替周期从 12 秒缩短到 4 秒，变化更明显。
+- 波点半径从网格间距的 6%–23% 改为 4%–27%，大点稍大、小点更小，扩大波浪的大小起伏。
+- 修复颜色 / 波点层的 CSS 优先级，减少动态效果时停用动画、页面隐藏时暂停动画。
+
+## 0.2.3 — 2026-10-07
+
+- 手势指示改为中性灰色、细描边和轻微阴影，取消蓝色填充。
+- 点击显示 1.6 秒，轻微按下收缩、回弹后停留，再淡出；拖拽显示 1.6–2 秒，包含起点按下、平滑移动、松开回弹及终点停留。
+- 连续动作独立显示，后续动作不会提前取消前一个指示；认证暂停、断流 / 换流、隐藏与页面销毁清理所有手势。减少动态效果时保持静止，仍保留完整显示时间。
+
+## 0.2.2 — 2026-10-07
+
+- 工具栏换成统一的圆头线性图标：刷新、主屏幕、截图使用相同的 24×24 网格、18px 显示尺寸和 1.75 线宽；房屋和相机轮廓使用柔和圆角。
+- 刷新箭头与圆弧连接在同一端点，修正箭头转角处的错位；截图图标改为相机轮廓。
+- 升级安装缓存与 widget URI 至 0.2.2，包含 0.2.1 的边缘渐隐与波浪点阵。
+
+## 0.2.1 — 2026-10-07
+
+- 按参考图让上、下边中央和左右边中段自然淡出至透明，四角保留天蓝柔光；光晕、细亮边和点阵使用同一渐隐遮罩。
+- 等大点阵改为大小与亮度连续起伏的波浪纹理，三张静态纹理随颜色层交替淡入淡出；仍只做透明度动画，隐藏时暂停，减少动态效果时静止。
+- 更新插件缓存版本与 widget 资源 URI，构建后的自包含 HTML 随包发布。
+
+## 0.2.0 — 2026-10-07
+
+延迟优化：减少每轮进入模型上下文的数据、完成一步所需的回合数，并去掉会卡住任务的超时。细节与实测记录在本地开发资料中。
+
+- **观察结果紧凑化。** 节点去掉 `XCUIElementType` 前缀，name / value 与文字相同时不重复，默认值省略，`rect` 为整数 `[x, y, width, height]`；同一 99 节点页面从 18,424 降到 6,868 字节。`wda_find`、`scroll_find`、`collect_list` 使用同一格式，不再返回元素 ID。这是输出格式变化，依赖旧字段的脚本需要调整。
+- **截图真正到达模型。** 面向模型的结果只返回一个紧凑 JSON 文本块和图片块，不再附带 `structuredContent`：Codex 在有结构化内容时会丢弃图片块。截图先用系统 `sips` 缩到 722×1568 级别的 JPEG，返回精确的 `image.pixel_to_point`，原始 PNG 保留在同名 `.png`。
+- **标签失败立刻改用坐标。** selector 找不到、不唯一、被判定不可点或不可编辑时，错误结果附当前截图和坐标点，下一次调用直接按坐标操作；输入可先按坐标点中输入框，再调用不带 selector 的 `wda_type_text`。同名元素叠在同一位置或只有一个在屏幕内时自动取该目标；selector 新增 `label_contains` 与 `index`。
+- **长文本输入。** 按约 200 字一段发送并按字数计算超时，不再在约 450 字处超时成“不确定”；超过单次调用时间预算时返回 `continue_token` 续传，不重发文本。batch 同样有时间预算，到点在步骤之间停下。
+- **动作后的观察等转场结束。** 动作附带的树读取前让 WDA 等动画结束（上限 0.8 秒），避免读到两页混在一起的树。
+- **更少的请求。** 元素查询一次返回类型与位置；页面源码根节点直接提供前台 App 和屏幕尺寸；坐标动作复用短时视口缓存。暖路径 selector 点击 5 → 3 次请求，树观察 3 → 1 次。
+- **预览与响应性。** 帧请求和工具栏在读取线程直接应答，长时间的手机操作不再冻住预览；推流线程按文件签名缓存状态。
+- **手机屏幕 widget 重做。** 顶部显示机型和 Live 状态，底部增加刷新、主屏幕、截图到剪贴板三个按钮（仅供用户点击，认证暂停期间禁用后两个）；边缘光效重做：沿屏幕大圆角环绕、四角更饱满，三层以天蓝为主的静态渐变交替淡入淡出，叠一层白色点阵纹理；只做透明度动画，柔边烘焙在一张遮罩图里而不是实时 blur 滤镜。界面跟随宿主深浅色。
+- **度量。** `wda_metrics` 增加每个工具的返回字节数、各接口字节数和两次调用之间的等待时间，支持 `reset`；新增 `scripts/benchmark.py` 固定真机任务。
+- 工具说明模型可见部分从 29,568 降到 21,419 字节；两个 skill 的启动、恢复细节移到 references。目录共 19 个工具：17 个模型工具、2 个仅供 App 使用。
+- `tooling/` 的依赖清单版本不再随插件版本改动：它的锁文件哈希决定是否重装 USB 依赖，无依赖变化的发布不应让下一次冷启动多跑一次 `npm ci`。
+
+## 0.1.14 — 2026-10-07
+
+- Keep the memory-only last preview frame across hidden-window lease expiry, stream gaps, request failures and bridge reconnects; resume polling on visibility / page-cache return. Authentication pause and teardown still erase all image backups, and delayed pre-pause replies cannot restore them.
+- Encode only requested latest JPEGs, skip identical frames, avoid repeated same-size layout, cap frame polling at 4 fps and apply bounded timeouts / retry backoff.
+- Remove SDK debug logs containing full frames; keep rounded gradient rings static and animate only composited opacity, pausing while hidden. Drag cursors use transform rather than left/top animation.
+
+## 0.1.13 — 2026-10-07
+
+- 增加按短边比例定位的顶部灵动岛及细微摄像头装饰，横屏随外壳旋转至左侧。
+- 四条矩形光带改为沿圆角轮廓过渡的渐变光晕，保持持续柔光与减少动态效果偏好。
+- 设备在可用区域内缩小 4%，增加自适应上下留白；图像比例及 cursor 坐标映射保持一致，采集和操作请求不变。
+
+## 0.1.12 — 2026-10-07
+
+- 插件说明、操作与 setup skill 明确新对话默认先初始化 READY，文字任务使用 `recover=true, screenshot=false`，复用 READY 返回的观察继续任务。
+- WDA 未启动、连接拒绝或 not_ready 进入 status / start 启动分支；复用已有 queued / running 工作、配置和有效构建，按实际缺项补 fetch / build，不直接结束任务或整套重装。
+- 未启动错误保留准确错误码，并附 `ready=false`、`initialization_required=true` 与 setup status 下一步，不自动执行启动 / 重启。
+- 区分冷启动与已核验归属的 XCTest 自动恢复；长期 Runner 不等 succeeded，服务可探测仍需 READY 证明。保留只读、禁止启动 / 重启等用户限制，真实用户前置条件使用「已完成继续」提问流程。
+- 打开 widget 或临时空白不代表 READY / 任务失败；“先打开让我看”后继续初始化与已授权任务，仅明确要求等待确认时暂停。
+
+## 0.1.11 — 2026-10-07
+
+- 首次操作后持续显示屏幕边缘渐变与涟漪，不随工具调用间隙闪灭；暂时缺帧 / 隐藏保留状态，认证暂停、断开 / 换流及页面结束清除。
+- 增加自适应圆角 iPhone 外壳、细金属边框、黑色玻璃边缘与侧键装饰，竖屏 / 横屏保持完整画面比例，cursor 坐标仍映射到内部屏幕。
+- 外框参考 Apple 官方 Product Bezels 与社区 devices.css，以原创 CSS 绘制，不遮住实际像素、不增加远程资源或依赖。
+- 仅调整界面状态和布局，不增加 WDA 读取 / 操作请求或提高帧轮询频率；更新资源版本以加载新版 widget。持续光效不代表任务已经完成。
+
+## 0.1.10 — 2026-10-07
+
+- 密码、Face ID 或手机解锁接管必须使用可用的宿主提问功能，首个选项固定「已完成继续」，第二个可为「暂时无法完成」；补充 Default 异步提问的准确参数示例。
+- 等待实际用户答复才恢复预览 / 手机操作，预选、工具立即返回及经过一段时间都不代表完成；保留进度并继续不依赖认证的工作。
+- 同步 setup、操作 skill、认证参考、widget 说明和 MCP instructions。
+
+## 0.1.9 — 2026-10-07
+
+- 修复真机 widget 空白：usbmux 交接的 socket 处于暂停状态，等待 HTTP parser 挂载后恢复读取，独立 USB MJPEG 通道现在能收到真实手机帧。
+- HTTP 回归 fixture 模拟真实暂停 socket，避免只用新建 TCP 连接时漏掉此问题；保留 chunked 解码、背压和自有连接清理。
+- 更新 UI 资源和安装版本以刷新缓存；不重启 WDA、创建 session 或增加手机观察 / 操作请求。
+
+## 0.1.8 — 2026-10-07
+
+- 按参考图将外圈细亮边改为屏幕内部的蓝紫柔光，四边向内渐隐，中心保持清晰；以缓慢呼吸和轻微缩放表现涟漪。
+- 光标位于光效上方，保持纯屏幕界面；减少动态效果偏好继续生效。不改变帧轮询、手机操作或观察次数。
+- 更新 UI 资源版本和插件缓存路径，避免继续显示旧光效。
+
+## 0.1.7 — 2026-10-07
+
+- 增加只有手机屏幕的侧边栏 MCP App，READY 关联默认显示入口，`wda_screen` 可重新打开、暂停和恢复。
+- 使用 WDA 独立 USB MJPEG 通道，界面最多每秒获取 5 次最新缓存帧，不增加 XCTest / XML / WDA 截图请求或占用操作锁，图像只保留内存。
+- AI 操作期间显示边缘涟漪渐变光效，实际点击 / 拖动坐标显示圆形 cursor；活动显示不证明动作成功。
+- 密码或 Face ID 接管前停止预览并清空画面，只有用户明确通知完成后才恢复；widget 隐藏 / 关闭后租约有界到期。
+- 目录增加 `wda_screen` 和仅供 App 使用的 `wda_screen_frame`，共 17 个模型工具、1 个 App 工具与 2 个 skills。
+
+## 0.1.6 — 2026-10-07
+
+- 安装时使用标准 MCP 同名注册 iphone_use，绕过 Codex 的插件工具共享说明预算；保留 skills、服务器和工具名字，不创建第二套命名空间。
+- batch 发布 schema 去除重复说明，将 selector / observe 提取为 $defs；保留 8 种操作和全部参数，低于宿主默认 5KB 有损压缩门槛。
+- 运行时闭集参数校验保持完整；新增 schema 引用 / 等价 / 字节预算及安装注册回归，并以真实模型工具绑定和原生 metrics 调用验收。
+
+## 0.1.5 — 2026-10-07
+
+- 普通动作默认 observe=none；输入、Home、App 激活和滚动默认 verify=false。已知 batch 乐观继续，下一步需要页面时动作顺带返回观察，最终关键结果显式验收。
+- 输入完整文本一次写入，不先试短文本；复用 editable 类型检查，精确回读按需开启。提交 / 不确定写入仍不自动重放，认证仍由用户接管。
+- 坐标与自选滚动区域的 observation_id 可选；提供时仅检查同 Runtime、App 与 viewport，不再整图匹配、内容指纹或 30 秒过期。
+- 默认滚动一次手势且无 XML 进展读取；显式核验使用稳定控件位移，数字刷新不算进展。复用 scroll_find 查询与 collect_list 页面，减少重复读取。
+- 会话首次创建或接管配置 waitForIdleTimeout=0 / animationCoolOffTimeout=0；设置只应用一次，暖动作不重复配置。
+- GET 和已知 POST 元素查询按读取处理，有界重试一次且不重置截止时间；旧元素 ID 不跨会话，实际写操作不自动重放。
+
+## 0.1.4 — 2026-10-07
+
+- 正常启动明确使用默认恢复；READY 未就绪诊断 / 后台恢复返回正常状态，真实拒绝仍是错误；正在恢复时禁止证明旧服务 READY。
+- 三个 CLI 对 ready=false 返回非零状态；只读 smoke 显式禁止发起恢复。
+- 激活一次后最多 5 秒轮询真实前台，失败保留动作证据、请求 / 实际 App 和恢复入口。
+- 遮挡和屏外目标补未执行证据；自选滚动失效补具体原因、新观察、内容 / 几何诊断。
+- 滚动前约束原生浮层区域，包含叠加 Sheet / Alert；每次手势后核对视口和浮层，变化时停止备用手势，verify=false 仍保留这些检查。
+- 审计 T01 的全部 11 次工具报错及评测脚本错误，补 skill 的自绘浮层、动态区域、批次停止和转场处理；不加入特定金融 App 操作规则。
+
+## 0.1.3 — 2026-10-07
+
+- 操作 skill 增加 App 密码、PIN、验证码和 Face ID / Touch ID 的用户接管流程及提示示例。
+- 接管期间暂停手机动作 / 读取 / 截图，保留进度；用户完成后重新定位并继续，避免重复已完成的提交。
+- 区分 App 认证、手机锁屏和 WDA 故障；setup skill 与故障参考指向同一流程。
+
+## 0.1.2 — 2026-10-07
+
+- swipe 增加 `observe` 输出选项，关闭观察仍默认验证进展；无进展错误附当前状态、执行证据和列表入口 / 区域诊断。
+- selector 明确支持 enabled，安全编码多行、引号、反斜线和 Unicode；NUL 在操作前拒绝，实际 Apple Foundation 解析器覆盖回归。
+- schema 补齐字段用途，未知参数和 batch 返回准确路径、允许字段及未执行证据。
+- READY 对失效前台读取只重试一次，持续 local.pid / XCTest Code 41 异步恢复已核验归属的服务；持久去重、120 秒冷却和有界 PID 发布等待避免重启循环。
+- 点击、输入、Home、激活和手势后的读取失败保留已执行证据，禁止自动重放；读取工具只提供恢复入口。
+- 增加截图报错归因、skill 恢复与验证规则；富途分栏保持原处理范围。
+
+## 0.1.1 — 2026-10-07
+
+- Home 使用 WDA 专用 homescreen 接口，核验 SpringBoard 前台；不生效和执行后的读取失败都明确保留状态证据。
+- 自选滚动只验证目标区域和全页原生浮层，区域外轮播不使观察失效；坐标点击保持原有严格检查。
+- 增加 `wda_apps`，查询实际安装列表、36 个 Apple 核验常用 App 和公开 Search API；包含来源、发布者和安装状态。
+- skill 提供 MCP 故障时的脚本 / Python 回退，复用会话、操作锁和动作保护；增加跨 App 完整交付与继续执行规则。
+- 修复已关闭 USB 转发连接的 TIME_WAIT 被误报端口占用；补充 XCTest Code 41 恢复指导。
+- 记录 T01 中途 final 的日志调查与归因边界。富途账户分栏暂未修改。
+
+## 0.1.0 — 2026-10-06
+
+首次发布本地 WDA 控制插件、2 个 skills、15 个 MCP tools 与引导安装 / READY 验证。
